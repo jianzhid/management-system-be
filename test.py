@@ -1,3 +1,6 @@
+from fileinput import filename
+
+from PIL import Image
 from flask import Flask, jsonify, request,make_response,session,send_file  # 导入Flask类库
 from flask_cors import CORS,cross_origin
 import pymysql
@@ -8,17 +11,32 @@ from qrcode.main import QRCode
 import qrcode
 import tempfile
 import io
+import os
+from werkzeug.utils import secure_filename
+from time import time
+
 
 from login.login import Login
 from register.register import Register
 from qr.generate_qr import GenerateQr
+
+# 文件存储的目录
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+
+
 
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
 CORS(app,supports_credentials=True)
 app.config['SESSION_TYPE'] = 'filesystem'  # 可以是 'memcached', 'redis', etc.
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 Session(app)
+
+
+
+
 
 @cross_origin()
 def get_user_file_release():
@@ -41,9 +59,9 @@ db = SQLAlchemy(app)
 
 
 class Test(db.Model):
-    __tablename__ = 'test'
+    __tablename__ = 'url_test'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String(64))
+    image_url = db.Column(db.String(64))
 
 class User(db.Model):
     __tablename__ = 'login'
@@ -61,6 +79,8 @@ class Person(db.Model):
     gender = db.Column(db.String(64))
     email = db.Column(db.String(64))
     referrer = db.Column(db.String(64))
+    file = db.Column(db.String(64))
+    info=db.Column(db.String(64))
 
 
 
@@ -78,6 +98,176 @@ class Business(db.Model):
     tel = db.Column(db.String(64))
     referrer = db.Column(db.String(64))
     password = db.Column(db.String(64))
+    image_url=db.Column(db.String(64))
+    info=db.Column(db.String(64))
+
+
+
+# 项目的根目录 起服务后，相对路径可能会改变
+basedir = os.path.abspath(os.path.dirname(__file__))
+
+@app.route('/getPic',methods=['GET', 'POST'])
+def findpic():
+    user_id = session.get('user_id')
+    if len(user_id)==11:
+        url = Person.query.filter_by(tel=user_id).first().file
+    else:
+        url = Business.query.filter_by(usci=user_id).first().image_url
+    img_url = basedir+url
+    print(img_url)
+    with open(img_url, 'rb') as f:
+        a = f.read()
+    '''对读取的图片进行处理'''
+    img_stream = io.BytesIO(a)
+    img = Image.open(img_stream)
+    imgByteArr = io.BytesIO()
+    img.save(imgByteArr,format='PNG')
+    imgByteArr.seek(0)
+    return make_response(imgByteArr.getvalue())
+
+
+
+
+def generate_unique_filename(extension='.png'):
+    timestamp = str(int(time() * 1000))  # 当前时间戳
+    return timestamp + extension
+
+
+
+
+def allowed_file(filename):
+    return '.' in filename and \
+        filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return '',False
+        #return jsonify({'error': '上传的非图片'})
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return '',False
+        #return jsonify({'error': '没选择图片'})
+
+    if file and allowed_file(file.filename):
+        # print(file)
+        # print(file.filename)
+        filename = generate_unique_filename()
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        abspath = os.path.abspath(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        print(abspath)
+        file_url = Test(image_url='/uploads/'+filename)
+        # db.session.add(file_url)
+        # db.session.commit()
+        return '/uploads/'+filename,True
+        #return jsonify({'message': '上传图片成功'})
+    else:
+        return '',False
+        #return jsonify({'error': '无效'})
+
+
+# @app.route('/per_register', methods=["POST"])
+# def per_register():
+#     users = Person.query.all()
+#     data,res=Register().person(users)
+#     if res.get_json()['code'] == 0:
+#         image_url,image=upload_file()
+#         print('test')
+#         print(image_url)
+#         if image==True:
+#             name = data['name']
+#             tel = data['tel']
+#             idcard = data['idcard']
+#             gender = data['gender']
+#             email = data['email']
+#             referrer = data['referrer']
+#             password = data['pass']
+#             user=Person(username=name,password=password,tel=tel,id_card=idcard,gender=gender,email=email,
+#                         referrer=referrer,file=image_url)
+#             db.session.add(user)
+#             db.session.commit()
+#             return res
+#         else:
+#             res = {
+#                 "code": -1,
+#                 "msg": "图片上传失败",
+#                 "data": {}
+#             }
+#             return res
+#     else:
+#         return res
+
+@app.route('/per_register', methods=["POST"])
+def per_register():
+    users = Person.query.all()
+    res=Register().person1(users)
+    if res.get_json()['code'] == 0:
+        image_url,image=upload_file()
+        print('test')
+        print(image_url)
+        if image==True:
+            name = request.form.get('name')
+            tel = request.form.get('tel')
+            idcard = request.form.get('idcard')
+            gender = request.form.get('gender')
+            email = request.form.get('email')
+            referrer = request.form.get('referrer')
+            password = request.form.get('pass')
+            user=Person(username=name,password=password,tel=tel,id_card=idcard,gender=gender,email=email,
+                        referrer=referrer,file=image_url,info=tel)
+            db.session.add(user)
+            db.session.commit()
+            return res
+        else:
+            res = {
+                "code": -1,
+                "msg": "图片上传失败",
+                "data": {}
+            }
+            return res
+    else:
+        return res
+
+
+
+@app.route('/bus_register', methods=["POST"])
+def bus_register():
+    users = Business.query.all()
+    res=Register().business1(users)
+    if res.get_json()['code'] == 0:
+        image_url,image=upload_file()
+        print('test')
+        print(image_url)
+        if image==True:
+            name = request.form.get('name')
+            usci = request.form.get('usci')
+            adress = request.form.get('adress')
+            bn = request.form.get('bn')
+            money = request.form.get('money')
+            time = request.form.get('time')
+            person = request.form.get('person')
+            tel = request.form.get('tel')
+            referrer = request.form.get('referrer')
+            password = request.form.get('twopass')
+            user = Business(name=name, usci=usci, adress=adress, bn=bn, money=money, time=time,
+                            person=person, tel=tel, referrer=referrer, password=password,image_url=image_url,
+                            info=usci)
+            db.session.add(user)
+            db.session.commit()
+            return res
+        else:
+            res = {
+                "code": -1,
+                "msg": "图片上传失败",
+                "data": {}
+            }
+            return res
+    else:
+        return res
+
 
 
 
@@ -116,7 +306,6 @@ def get_user_info():
 
 @app.route('/login', methods=["POST"])
 def login():
-    print('test1')
     data = request.json.get("data")
     way = data['way']
     if way=='person':
@@ -131,7 +320,7 @@ def login():
         user_info,login_data = Login().login(users,data)
         if login_data.get_json()['code']==0:
             session['user_id'] = user_info
-        return login_data,
+        return login_data
     elif way=='':
         res={
             'code':-1,
@@ -150,50 +339,34 @@ def login():
 
 
 
-@app.route('/per_register', methods=["POST"])
-def per_register():
-    users = Person.query.all()
-    data,res=Register().person(users)
-    if res.get_json()['code'] == 0:
-        name = data['name']
-        tel = data['tel']
-        idcard = data['idcard']
-        gender = data['gender']
-        email = data['email']
-        referrer = data['referrer']
-        password = data['pass']
-        user=Person(username=name,password=password,tel=tel,id_card=idcard,gender=gender,email=email,referrer=referrer)
-        db.session.add(user)
-        db.session.commit()
-        return res
-    else:
-        return res
 
-@app.route('/bus_register', methods=["POST"])
-def bus_register():
-    users = Business.query.all()
-    data,res=Register().business(users)
-    if res.get_json()['code'] == 0:
-        name = data['name']
-        usci = data['usci']
-        adress = data['adress']
-        bn = data['bn']
-        money = data['money']
-        time = data['time']
-        person = data['person']
-        tel = data['tel']
-        referrer = data['referrer']
-        password = data['twopass']
-        print(time)
-        print(type(time))
-        user=Business(name=name,usci=usci,adress=adress,bn=bn,money=money,time=time,
-                    person=person,tel=tel,referrer=referrer,password=password)
-        db.session.add(user)
-        print('test2')
-        db.session.commit()
-        return res
-    else:
-        return res
+
+# @app.route('/bus_register', methods=["POST"])
+# def bus_register():
+#     users = Business.query.all()
+#     data,res=Register().business(users)
+#     if res.get_json()['code'] == 0:
+#         name = data['name']
+#         usci = data['usci']
+#         adress = data['adress']
+#         bn = data['bn']
+#         money = data['money']
+#         time = data['time']
+#         person = data['person']
+#         tel = data['tel']
+#         referrer = data['referrer']
+#         password = data['twopass']
+#         print(time)
+#         print(type(time))
+#         user=Business(name=name,usci=usci,adress=adress,bn=bn,money=money,time=time,
+#                     person=person,tel=tel,referrer=referrer,password=password)
+#         db.session.add(user)
+#         print('test2')
+#         db.session.commit()
+#         return res
+#     else:
+#         return res
+
 
 
 
@@ -202,7 +375,7 @@ def bus_register():
 def generate_qr(data):
     print('test')
     print(data)
-    return GenerateQr().generate_qr1(data)
+    return GenerateQr().generate_qr(data)
 
 
 @app.route('/generate_qrcode', methods=['POST'])
@@ -210,7 +383,7 @@ def generate_qr_image():
     print('test')
     link= request.json.get("data")['url']
     print(link)
-    return GenerateQr().generate_qr1(link)
+    return GenerateQr().generate_qr(link)
 
 
 
@@ -265,6 +438,11 @@ def get_data():
     elif request.method == 'POST':
         data = request.form.get('input_data')
     return f"收到的数据是: {data}"
+
+
+
+
+
 
 if __name__ == '__main__':  # 启动服务
    app.run(debug = True,port=5000)

@@ -1,57 +1,39 @@
-from flask import Flask, request, session, redirect, url_for, render_template
-from flask_cors import CORS,cross_origin
-from flask_session import Session
-import pymysql
-from flask_sqlalchemy import SQLAlchemy
-
-
-from login.login import Login
-from register.register import Register
-from qr.generate_qr import GenerateQr
+from flask import Flask, request, jsonify
+# 假设使用twilio服务发送短信验证码
+from twilio.rest import Client
+import random
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key'
-CORS(app,supports_credentials=True)
-app.config['SESSION_TYPE'] = 'filesystem'  # 可以是 'memcached', 'redis', etc.
-Session(app)
-
-@cross_origin()
-def get_user_file_release():
-    pass
-
-@app.route('/login', methods=['POST'])
-def login():
+account_sid = 'your_account_sid'
+auth_token = 'your_auth_token'
+client = Client(account_sid, auth_token)
 
 
-    # 假设这里有用户验证逻辑
-    # 验证成功后，将用户ID存储在session中
-    session['user_id'] = 'user123'
-    user_id = session.get('user_id')
-    print(user_id)
-    return 'Login successful', 200
+@app.route('/send-code', methods=['POST'])
+def send_code():
+    phone_number = request.json.get('phone_number')
+    code = str(random.randint(100000, 999999))
+    message = client.messages.create(
+        to=phone_number,
+        from_='your_twilio_number',
+        body=f"Your verification code is {code}."
+    )
+    # 将生成的验证码保存到session或数据库以供后续验证
+    # session['code'] = code
+    return jsonify({"message": "Code sent successfully!"})
 
 
-@app.route('/logout')
-def logout():
-    # 清除session中的用户ID
-    session.pop('user_id', None)
-    return 'Logout successful', 200
-
-
-@app.route('/me')
-def get_user_info():
-    # 检查session中是否有用户ID
-    user_id = session.get('user_id')
-    print(user_id)
-    print('test1')
-    if user_id:
-        # 用户已登录，返回用户信息
-        print('test2')
-        return {'user_id': user_id, 'name': 'John Doe'}, 200
+@app.route('/verify-code', methods=['POST'])
+def verify_code():
+    phone_number = request.json.get('phone_number')
+    code = request.json.get('code')
+    # 从session或数据库获取验证码并验证
+    # saved_code = session.get('code')
+    # if saved_code and code == saved_code:
+    if code == "expected_code_from_database":  # 示例代码，应从数据库获取实际验证码
+        return jsonify({"message": "Code verified!"})
     else:
-        # 用户未登录，返回错误信息或重定向到登录页面
-        print('test3')
-        return 'User not logged in', 401
+        return jsonify({"error": "Invalid code!"}), 403
 
 
 if __name__ == '__main__':
